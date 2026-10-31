@@ -1,0 +1,45 @@
+﻿**/.dockerignore
+**/.env
+**/.env.*
+**/.git
+**/.gitignore
+**/.gitattributes
+**/.github/
+**/.project
+**/.settings
+**/.toolstarget
+**/.vs
+**/.vscode
+**/.idea
+**/.fleet
+**/.cursor
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/azds.yaml
+**/bin
+**/charts
+**/docker-compose*
+**/Dockerfile*
+**/node_modules
+**/npm-debug.log
+**/obj
+**/secrets.dev.yaml
+**/values.dev.yaml
+LICENSE
+**/*.md
+**/docs/
+
+# Local launch profiles and dev settings
+**/launchSettings.json
+**/appsettings.Development.json
+**/*.http
+**/http-client.env.json
+
+# Tests and logs
+**/TestResults/
+**/*.log
+
+# OS metadata
+**/.DS_Store
+**/Thumbs.db
