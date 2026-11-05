@@ -3,6 +3,7 @@ using clinica_dental_api_cloud.Conventions;
 using clinica_dental_api_cloud.Data;
 using clinica_dental_api_cloud.OpenApi;
 using clinica_dental_api_cloud.Options;
+using clinica_dental_api_cloud.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -49,8 +50,11 @@ builder.Services.Configure<JwtOptions>(jwtSection);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
+            NameClaimType = AuthClaims.Subject,
+            RoleClaimType = AuthClaims.Role,
             ValidateIssuer = true,
             ValidIssuer = jwtOptions.Issuer,
             ValidateAudience = true,
@@ -62,6 +66,9 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         };
     });
 builder.Services.AddAuthorization();
+
+builder.Services.AddScoped<ITokenService, TokenService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
 
 // OpenAPI with the Bearer scheme so Scalar shows the token field
 builder.Services.AddOpenApi(options =>
