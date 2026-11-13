@@ -6,6 +6,10 @@
 # dotenv files
 .env
 
+# Configuración local de ASP.NET Core (usar user-secrets o variables de entorno)
+appsettings.Development.json
+appsettings.Local.json
+
 # User-specific files
 *.rsuser
 *.suo
