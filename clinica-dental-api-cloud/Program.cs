@@ -27,7 +27,14 @@ builder.Services.AddControllers(options =>
     options.Conventions.Add(new GlobalRoutePrefixConvention("api/v1")));
 
 // Consistent error responses (RFC 7807)
-builder.Services.AddProblemDetails();
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        if (context.ProblemDetails is HttpValidationProblemDetails)
+            context.ProblemDetails.Title = "Hay datos inválidos en la solicitud.";
+    };
+});
 
 // CORS limited to the configured origins
 var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
@@ -50,6 +57,11 @@ if (string.IsNullOrWhiteSpace(jwtOptions.Issuer))
     throw new InvalidOperationException("Falta el emisor JWT. Defina Jwt__Issuer.");
 if (string.IsNullOrWhiteSpace(jwtOptions.Audience))
     throw new InvalidOperationException("Falta la audiencia JWT. Defina Jwt__Audience.");
+// HMAC-SHA256 exige una clave de al menos 256 bits; con una más corta el API arrancaría y fallaría en el primer login
+if (Encoding.UTF8.GetByteCount(jwtOptions.Key) < 32)
+    throw new InvalidOperationException("La clave JWT es muy corta. Jwt__Key debe tener al menos 32 bytes.");
+if (jwtOptions.ExpiresInMinutes <= 0)
+    throw new InvalidOperationException("Jwt__ExpiresInMinutes debe ser mayor que cero.");
 
 builder.Services.Configure<JwtOptions>(jwtSection);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

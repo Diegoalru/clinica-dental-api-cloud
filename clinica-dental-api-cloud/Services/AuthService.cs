@@ -109,9 +109,13 @@ public class AuthService(ClinicaDbContext db, ITokenService tokenService, ILogge
         }
         else
         {
-            // Se conserva la ficha que creó recepción; solo se le asocia la cuenta
+            // Se conserva la ficha que creó recepción: se le asocia la cuenta y solo se completan los datos
+            // que estaban vacíos, sin sobrescribir lo que ya tenía
             patient.IdUserNavigation = user;
             patient.DataConsentAt ??= DateTime.UtcNow;
+            patient.BirthDate ??= request.BirthDate;
+            patient.Phone ??= user.Phone;
+            patient.EmergencyContact ??= TrimOrNull(request.EmergencyContact);
         }
 
         // Un solo SaveChanges: el usuario y el paciente se guardan en la misma transacción
