@@ -25,6 +25,18 @@ public static class ClinicTime
     public static DateTime ToClinic(DateTime utc) => TimeZoneInfo.ConvertTimeFromUtc(utc, Zone);
 
     /// <summary>
+    /// The same instant with the clinic's offset (2026-11-20T09:00:00-06:00), as the API returns it.
+    /// A value without zone is taken as UTC, because that is how timestamptz columns are read.
+    /// </summary>
+    public static DateTimeOffset ToClinicOffset(DateTime value)
+    {
+        var utc = value.Kind == DateTimeKind.Local
+            ? value.ToUniversalTime()
+            : DateTime.SpecifyKind(value, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTime(new DateTimeOffset(utc), Zone);
+    }
+
+    /// <summary>
     /// ISO day of week, as in dentist_schedules: 1 = Monday ... 7 = Sunday.
     /// </summary>
     public static short IsoDayOfWeek(DateTime value) =>

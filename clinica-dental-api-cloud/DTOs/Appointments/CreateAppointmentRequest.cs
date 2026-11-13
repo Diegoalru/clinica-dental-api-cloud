@@ -19,8 +19,8 @@ public class CreateAppointmentRequest
     public long? ServiceId { get; set; }
 
     /// <summary>
-    /// ISO 8601. With "Z" or an offset it is used as is; without zone it is taken as clinic time (Costa Rica).
-    /// The end is calculated from the service duration.
+    /// ISO 8601. Without zone it is taken as clinic time (Costa Rica): "2026-11-20T09:00" is 9:00 a. m. in Costa Rica.
+    /// With "Z" or an offset it is used as is. The end is calculated from the service duration.
     /// </summary>
     [Required(ErrorMessage = "La fecha y hora son obligatorias.")]
     public DateTime? StartsAt { get; set; }

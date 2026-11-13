@@ -1,7 +1,7 @@
 namespace clinica_dental_api_cloud.DTOs.Appointments;
 
 /// <summary>
-/// Dates in UTC ("Z"); the frontend shows them in local time.
+/// Dates go out in Costa Rica time with their offset ("2026-11-20T09:00:00-06:00"), see ClinicDateTimeJsonConverter.
 /// </summary>
 public record AppointmentResponse(
     long Id,

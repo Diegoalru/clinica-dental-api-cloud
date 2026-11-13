@@ -24,7 +24,9 @@ builder.Services.AddDbContext<ClinicaDbContext>(options => options.UseNpgsql(con
 
 // Every controller answers under /api/v1/...
 builder.Services.AddControllers(options =>
-    options.Conventions.Add(new GlobalRoutePrefixConvention("api/v1")));
+        options.Conventions.Add(new GlobalRoutePrefixConvention("api/v1")))
+    // Las fechas de las respuestas salen en hora de Costa Rica (-06:00), no en UTC
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new ClinicDateTimeJsonConverter()));
 
 // Consistent error responses (RFC 7807)
 builder.Services.AddProblemDetails(options =>
