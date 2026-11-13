@@ -75,6 +75,14 @@ builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     options.AddOperationTransformer<BearerSecuritySchemeTransformer>();
+
+    // Sin "servers", Scalar usa la dirección de la página. Detrás del ingress de Azure el API recibe HTTP,
+    // y si el documento anunciara http:// el navegador bloquearía las pruebas desde la página HTTPS
+    options.AddDocumentTransformer((document, _, _) =>
+    {
+        document.Servers = [];
+        return Task.CompletedTask;
+    });
 });
 
 var app = builder.Build();
@@ -82,19 +90,22 @@ var app = builder.Build();
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
-if (app.Environment.IsDevelopment())
+// La documentación queda disponible en todos los entornos (el enunciado la pide en el despliegue)
+// y bajo /api/, igual que el resto del API
+const string openApiRoute = "/api/openapi/{documentName}.json";
+app.MapOpenApi(openApiRoute);
+app.MapScalarApiReference("/api/scalar", options =>
 {
-    app.MapOpenApi();
-    app.MapScalarApiReference(options =>
-    {
-        options.Title = "Clinica Dental API";
-        options.Theme = ScalarTheme.DeepSpace;
-        options.ForceThemeMode = ThemeMode.Dark;
-        options.AddPreferredSecuritySchemes(BearerSecuritySchemeTransformer.SchemeName);
-    });
-}
+    options.Title = "Clinica Dental API";
+    options.OpenApiRoutePattern = openApiRoute;
+    options.Theme = ScalarTheme.DeepSpace;
+    options.ForceThemeMode = ThemeMode.Dark;
+    options.AddPreferredSecuritySchemes(BearerSecuritySchemeTransformer.SchemeName);
+});
 
-app.UseHttpsRedirection();
+// En Azure el HTTPS termina en el ingress y el contenedor solo recibe HTTP por el puerto 8080
+if (app.Environment.IsDevelopment())
+    app.UseHttpsRedirection();
 
 app.UseCors(corsPolicy);
 app.UseAuthentication();
