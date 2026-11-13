@@ -46,6 +46,10 @@ var jwtSection = configuration.GetSection(JwtOptions.SectionName);
 var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
 if (string.IsNullOrWhiteSpace(jwtOptions.Key))
     throw new InvalidOperationException("Falta la clave JWT. Defina Jwt__Key.");
+if (string.IsNullOrWhiteSpace(jwtOptions.Issuer))
+    throw new InvalidOperationException("Falta el emisor JWT. Defina Jwt__Issuer.");
+if (string.IsNullOrWhiteSpace(jwtOptions.Audience))
+    throw new InvalidOperationException("Falta la audiencia JWT. Defina Jwt__Audience.");
 
 builder.Services.Configure<JwtOptions>(jwtSection);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
