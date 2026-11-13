@@ -1,6 +1,7 @@
 using System.Text;
 using clinica_dental_api_cloud.Conventions;
 using clinica_dental_api_cloud.Data;
+using clinica_dental_api_cloud.Errors;
 using clinica_dental_api_cloud.OpenApi;
 using clinica_dental_api_cloud.Options;
 using clinica_dental_api_cloud.Services;
@@ -45,6 +46,10 @@ var jwtSection = configuration.GetSection(JwtOptions.SectionName);
 var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
 if (string.IsNullOrWhiteSpace(jwtOptions.Key))
     throw new InvalidOperationException("Falta la clave JWT. Defina Jwt__Key.");
+if (string.IsNullOrWhiteSpace(jwtOptions.Issuer))
+    throw new InvalidOperationException("Falta el emisor JWT. Defina Jwt__Issuer.");
+if (string.IsNullOrWhiteSpace(jwtOptions.Audience))
+    throw new InvalidOperationException("Falta la audiencia JWT. Defina Jwt__Audience.");
 
 builder.Services.Configure<JwtOptions>(jwtSection);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -69,6 +74,15 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<ICatalogService, CatalogService>();
+builder.Services.AddScoped<IPatientService, PatientService>();
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+
+// Expected errors (400/403/404/409) thrown by the services become ProblemDetails
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 // OpenAPI with the Bearer scheme so Scalar shows the token field
 builder.Services.AddOpenApi(options =>
