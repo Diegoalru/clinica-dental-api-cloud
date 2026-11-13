@@ -112,17 +112,17 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
             await transaction.CommitAsync(cancellationToken);
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException
-                                           {
-                                               SqlState: PostgresErrorCodes.ExclusionViolation
-                                           })
+        {
+            SqlState: PostgresErrorCodes.ExclusionViolation
+        })
         {
             // appointments_no_overlap: another active appointment of this dentist overlaps
             throw ApiException.Conflict("El espacio ya fue tomado. Elija otro horario.");
         }
         catch (DbUpdateException ex) when (ex.InnerException is PostgresException
-                                           {
-                                               SqlState: PostgresErrorCodes.ForeignKeyViolation
-                                           })
+        {
+            SqlState: PostgresErrorCodes.ForeignKeyViolation
+        })
         {
             throw ApiException.BadRequest("El paciente, el odontólogo o el servicio no existen.");
         }

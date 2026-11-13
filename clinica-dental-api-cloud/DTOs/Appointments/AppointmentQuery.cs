@@ -26,7 +26,8 @@ public class AppointmentQuery
     /// </summary>
     public string? Status { get; set; }
 
-    [Range(1, int.MaxValue, ErrorMessage = "La página debe ser 1 o mayor.")]
+    // Con un límite, (Page - 1) * PageSize no se desborda
+    [Range(1, 10_000, ErrorMessage = "La página debe estar entre 1 y 10000.")]
     public int Page { get; set; } = 1;
 
     [Range(1, 100, ErrorMessage = "El tamaño de página debe estar entre 1 y 100.")]

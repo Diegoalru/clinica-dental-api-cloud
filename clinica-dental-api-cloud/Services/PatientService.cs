@@ -17,9 +17,11 @@ public class PatientService(ClinicaDbContext db) : IPatientService
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var pattern = $"%{search.Trim()}%";
-            query = query.Where(p => EF.Functions.ILike(p.FullName, pattern)
-                                     || EF.Functions.ILike(p.Identification, pattern));
+            // % y _ son comodines de LIKE: se escapan para buscarlos como texto
+            var escaped = search.Trim().Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
+            var pattern = $"%{escaped}%";
+            query = query.Where(p => EF.Functions.ILike(p.FullName, pattern, @"\")
+                                     || EF.Functions.ILike(p.Identification, pattern, @"\"));
         }
 
         return await query

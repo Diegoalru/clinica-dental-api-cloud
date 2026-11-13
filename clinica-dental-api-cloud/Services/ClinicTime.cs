@@ -5,7 +5,12 @@ namespace clinica_dental_api_cloud.Services;
 /// </summary>
 public static class ClinicTime
 {
-    public static readonly TimeZoneInfo Zone = TimeZoneInfo.FindSystemTimeZoneById("America/Costa_Rica");
+    // La imagen chiseled del contenedor no trae tzdata, así que la zona puede no existir. Costa Rica no tiene
+    // horario de verano desde 1992, por lo que UTC-6 fijo da la misma hora.
+    private static readonly TimeZoneInfo Zone =
+        TimeZoneInfo.TryFindSystemTimeZoneById("America/Costa_Rica", out var zone)
+            ? zone
+            : TimeZoneInfo.CreateCustomTimeZone("America/Costa_Rica", TimeSpan.FromHours(-6), "Costa Rica", "Costa Rica");
 
     /// <summary>
     /// A value with "Z" or an offset is converted as is; a value without zone is taken as clinic time.
