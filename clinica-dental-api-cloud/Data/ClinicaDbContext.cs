@@ -33,7 +33,9 @@ public partial class ClinicaDbContext(DbContextOptions<ClinicaDbContext> options
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        modelBuilder.HasPostgresExtension("btree_gist");
+        modelBuilder
+            .HasPostgresExtension("extensions", "btree_gist")
+            .HasPostgresExtension("extensions", "pgcrypto");
 
         modelBuilder.Entity<Appointment>(entity =>
         {
@@ -44,6 +46,8 @@ public partial class ClinicaDbContext(DbContextOptions<ClinicaDbContext> options
             entity.HasIndex(e => new { e.IdDentist, e.StartsAt }, "idx_appointments_dentist_start");
 
             entity.HasIndex(e => new { e.IdPatient, e.StartsAt }, "idx_appointments_patient_start");
+
+            entity.HasIndex(e => new { e.StartsAt, e.Status }, "idx_appointments_start_status");
 
             entity.Property(e => e.IdAppointment)
                 .UseIdentityAlwaysColumn()
@@ -75,7 +79,7 @@ public partial class ClinicaDbContext(DbContextOptions<ClinicaDbContext> options
             entity.HasOne(d => d.DentistService).WithMany(p => p.Appointments)
                 .HasForeignKey(d => new { d.IdDentist, d.IdService })
                 .OnDelete(DeleteBehavior.Restrict)
-                .HasConstraintName("appointments_id_dentist_id_service_fkey");
+                .HasConstraintName("appointments_dentist_service_fkey");
         });
 
         modelBuilder.Entity<AppointmentLog>(entity =>
@@ -183,7 +187,7 @@ public partial class ClinicaDbContext(DbContextOptions<ClinicaDbContext> options
             entity.ToTable("dentist_schedules");
 
             entity.HasIndex(e => new { e.IdDentist, e.DayOfWeek, e.StartTime },
-                "dentist_schedules_id_dentist_day_of_week_start_time_key").IsUnique();
+                "dentist_schedules_slot_unique").IsUnique();
 
             entity.Property(e => e.IdSchedule)
                 .UseIdentityAlwaysColumn()

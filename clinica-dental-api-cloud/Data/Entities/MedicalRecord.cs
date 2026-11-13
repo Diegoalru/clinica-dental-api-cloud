@@ -8,11 +8,11 @@ public class MedicalRecord
 
     public string? Symptoms { get; set; }
 
-    public string? PhysicalExam { get; set; }
+    public string PhysicalExam { get; set; } = null!;
 
-    public string? Diagnosis { get; set; }
+    public string Diagnosis { get; set; } = null!;
 
-    public string? TreatmentPlan { get; set; }
+    public string TreatmentPlan { get; set; } = null!;
 
     public string? Prescriptions { get; set; }
 
