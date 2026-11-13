@@ -6,13 +6,11 @@ namespace clinica_dental_api_cloud.Services;
 
 public class CatalogService(ClinicaDbContext db) : ICatalogService
 {
-    private const string ActiveStatus = "ACTIVE";
-
     public async Task<IReadOnlyList<ServiceResponse>> GetServicesAsync(CancellationToken cancellationToken)
     {
         return await db.Services
             .AsNoTracking()
-            .Where(s => s.Status == ActiveStatus)
+            .Where(s => s.Status == RecordStatus.Active)
             .OrderBy(s => s.Name)
             .Select(s => new ServiceResponse(s.IdService, s.Name, s.Description, s.DurationMinutes, s.Price))
             .ToListAsync(cancellationToken);
@@ -23,7 +21,7 @@ public class CatalogService(ClinicaDbContext db) : ICatalogService
     {
         var query = db.Dentists
             .AsNoTracking()
-            .Where(d => d.Status == ActiveStatus && d.IdUserNavigation.Status == ActiveStatus);
+            .Where(d => d.Status == RecordStatus.Active && d.IdUserNavigation.Status == RecordStatus.Active);
 
         if (serviceId is not null)
             query = query.Where(d => d.DentistServices.Any(ds => ds.IdService == serviceId));
