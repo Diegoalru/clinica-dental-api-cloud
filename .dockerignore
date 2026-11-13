@@ -33,6 +33,7 @@ LICENSE
 # Local launch profiles and dev settings
 **/launchSettings.json
 **/appsettings.Development.json
+**/appsettings.example.json
 **/*.http
 **/http-client.env.json
 
