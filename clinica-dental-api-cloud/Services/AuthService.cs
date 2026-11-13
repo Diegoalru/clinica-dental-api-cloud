@@ -2,6 +2,7 @@ using BCrypt.Net;
 using clinica_dental_api_cloud.Data;
 using clinica_dental_api_cloud.Data.Entities;
 using clinica_dental_api_cloud.DTOs.Auth;
+using clinica_dental_api_cloud.Errors;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using BCryptNet = BCrypt.Net.BCrypt;
@@ -52,14 +53,14 @@ public class AuthService(ClinicaDbContext db, ITokenService tokenService, ILogge
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    public async Task<ServiceResult<LoginResponse>> RegisterPatientAsync(RegisterPatientRequest request,
+    public async Task<LoginResponse> RegisterPatientAsync(RegisterPatientRequest request,
         CancellationToken cancellationToken)
     {
         var email = NormalizeEmail(request.Email);
         var identification = IdentificationFormat.Normalize(request.Identification);
 
         if (await EmailInUseAsync(email, cancellationToken))
-            return ServiceResult<LoginResponse>.Conflict("El correo ya está registrado. Inicie sesión.");
+            throw ApiException.Conflict("El correo ya está registrado. Inicie sesión.");
 
         // Un paciente puede existir sin cuenta: recepción lo registra en persona o por teléfono
         var patient = await db.Patients
@@ -69,19 +70,19 @@ public class AuthService(ClinicaDbContext db, ITokenService tokenService, ILogge
         if (patient is not null)
         {
             if (patient.IdUser is not null)
-                return ServiceResult<LoginResponse>.Conflict(
+                throw ApiException.Conflict(
                     "La identificación ya tiene una cuenta registrada. Inicie sesión.");
 
             // Solo se vincula si el correo coincide con el que guardó recepción; si no, cualquiera que supiera
             // la cédula de otra persona podría quedarse con su historial
             if (patient.Status != RecordStatus.Active || patient.Email?.ToLowerInvariant() != email)
-                return ServiceResult<LoginResponse>.Conflict(
+                throw ApiException.Conflict(
                     "La identificación ya está registrada en la clínica. Para activar su cuenta, comuníquese con recepción.");
         }
 
         var user = new User
         {
-            IdRole = await GetRoleIdAsync(AppRoles.Patient, cancellationToken),
+            IdRole = await GetRoleIdAsync(Roles.Patient, cancellationToken),
             FullName = request.FullName.Trim(),
             Email = email,
             Phone = TrimOrNull(request.Phone),
@@ -115,34 +116,34 @@ public class AuthService(ClinicaDbContext db, ITokenService tokenService, ILogge
 
         // Un solo SaveChanges: el usuario y el paciente se guardan en la misma transacción
         if (!await TrySaveAsync(cancellationToken))
-            return ServiceResult<LoginResponse>.Conflict("El correo o la identificación ya están registrados.");
+            throw ApiException.Conflict("El correo o la identificación ya están registrados.");
 
         logger.LogInformation("Cuenta de paciente creada: usuario {UserId}, paciente {PatientId}, vinculada {Linked}",
             user.IdUser, patient.IdPatient, linkExistingPatient);
 
-        var response = new UserResponse(user.IdUser, user.FullName, user.Email, AppRoles.Patient,
+        var response = new UserResponse(user.IdUser, user.FullName, user.Email, Roles.Patient,
             patient.IdPatient, null);
-        return ServiceResult<LoginResponse>.Success(CreateLoginResponse(response));
+        return CreateLoginResponse(response);
     }
 
-    public async Task<ServiceResult<UserResponse>> CreateStaffAsync(CreateStaffRequest request,
+    public async Task<UserResponse> CreateStaffAsync(CreateStaffRequest request,
         CancellationToken cancellationToken)
     {
         var email = NormalizeEmail(request.Email);
 
         if (await EmailInUseAsync(email, cancellationToken))
-            return ServiceResult<UserResponse>.Conflict("El correo ya está registrado.");
+            throw ApiException.Conflict("El correo ya está registrado.");
 
-        var isDentist = request.Role == AppRoles.Dentist;
+        var isDentist = request.Role == Roles.Dentist;
         var licenseNumber = request.LicenseNumber?.Trim();
 
         if (isDentist)
         {
             if (!await db.Specialties.AnyAsync(s => s.IdSpecialty == request.IdSpecialty, cancellationToken))
-                return ServiceResult<UserResponse>.Invalid("La especialidad no existe.");
+                throw ApiException.BadRequest("La especialidad no existe.");
 
             if (await db.Dentists.AnyAsync(d => d.LicenseNumber == licenseNumber, cancellationToken))
-                return ServiceResult<UserResponse>.Conflict("El número de colegiado ya está registrado.");
+                throw ApiException.Conflict("El número de colegiado ya está registrado.");
         }
 
         var user = new User
@@ -170,12 +171,11 @@ public class AuthService(ClinicaDbContext db, ITokenService tokenService, ILogge
         }
 
         if (!await TrySaveAsync(cancellationToken))
-            return ServiceResult<UserResponse>.Conflict("El correo o el número de colegiado ya están registrados.");
+            throw ApiException.Conflict("El correo o el número de colegiado ya están registrados.");
 
         logger.LogInformation("Cuenta de personal creada: usuario {UserId}, rol {Role}", user.IdUser, request.Role);
 
-        return ServiceResult<UserResponse>.Success(new UserResponse(user.IdUser, user.FullName, user.Email,
-            request.Role, null, dentist?.IdDentist));
+        return new UserResponse(user.IdUser, user.FullName, user.Email, request.Role, null, dentist?.IdDentist);
     }
 
     private LoginResponse CreateLoginResponse(UserResponse user)

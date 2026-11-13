@@ -25,7 +25,7 @@ public class CreateStaffRequest : IValidatableObject
     public string? Phone { get; set; }
 
     [Required(ErrorMessage = "El rol es obligatorio.")]
-    [AllowedValues(AppRoles.Admin, AppRoles.Receptionist, AppRoles.Dentist,
+    [AllowedValues(Roles.Admin, Roles.Receptionist, Roles.Dentist,
         ErrorMessage = "El rol debe ser ADMIN, RECEPTIONIST o DENTIST.")]
     public string Role { get; set; } = string.Empty;
 
@@ -38,7 +38,7 @@ public class CreateStaffRequest : IValidatableObject
 
     public IEnumerable<ValidationResult> Validate(ValidationContext validationContext)
     {
-        if (Role != AppRoles.Dentist)
+        if (Role != Roles.Dentist)
             yield break;
 
         if (string.IsNullOrWhiteSpace(LicenseNumber))

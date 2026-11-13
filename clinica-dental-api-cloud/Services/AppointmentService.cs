@@ -11,7 +11,6 @@ namespace clinica_dental_api_cloud.Services;
 
 public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) : IAppointmentService
 {
-    private const string ActiveStatus = "ACTIVE";
     private static readonly TimeSpan ReminderLeadTime = TimeSpan.FromHours(24);
 
     private static readonly Expression<Func<Appointment, AppointmentResponse>> ToResponse = a =>
@@ -49,7 +48,7 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
                           .FirstOrDefaultAsync(cancellationToken)
                       ?? throw ApiException.NotFound("El paciente no existe.");
 
-        if (patient.Status != ActiveStatus)
+        if (patient.Status != RecordStatus.Active)
             throw ApiException.BadRequest("El paciente está inactivo.");
 
         // The pair must exist in dentist_services (the appointment's composite FK)
@@ -66,9 +65,9 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
                            .FirstOrDefaultAsync(cancellationToken)
                        ?? throw ApiException.BadRequest("El odontólogo no ofrece ese servicio.");
 
-        if (offering.DentistStatus != ActiveStatus)
+        if (offering.DentistStatus != RecordStatus.Active)
             throw ApiException.BadRequest("El odontólogo está inactivo.");
-        if (offering.ServiceStatus != ActiveStatus)
+        if (offering.ServiceStatus != RecordStatus.Active)
             throw ApiException.BadRequest("El servicio está inactivo.");
 
         // The backend calculates the end, never the client

@@ -35,17 +35,15 @@ public class AuthController(IAuthService authService) : ControllerBase
     public async Task<ActionResult<LoginResponse>> Register(RegisterPatientRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await authService.RegisterPatientAsync(request, cancellationToken);
-
-        return result.Succeeded
-            ? CreatedAtAction(nameof(Me), result.Value)
-            : ErrorResult(result.Error, result.Message);
+        // Los conflictos (correo o cédula ya registrados) llegan como ApiException y salen como 409
+        var response = await authService.RegisterPatientAsync(request, cancellationToken);
+        return CreatedAtAction(nameof(Me), response);
     }
 
     /// <summary>
     ///     Crea cuentas del personal. Solo un administrador puede hacerlo.
     /// </summary>
-    [Authorize(Roles = AppRoles.Admin)]
+    [Authorize(Roles = Roles.Admin)]
     [HttpPost("staff")]
     [ProducesResponseType<UserResponse>(StatusCodes.Status201Created)]
     [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
@@ -55,11 +53,8 @@ public class AuthController(IAuthService authService) : ControllerBase
     public async Task<ActionResult<UserResponse>> CreateStaff(CreateStaffRequest request,
         CancellationToken cancellationToken)
     {
-        var result = await authService.CreateStaffAsync(request, cancellationToken);
-
-        return result.Succeeded
-            ? StatusCode(StatusCodes.Status201Created, result.Value)
-            : ErrorResult(result.Error, result.Message);
+        var user = await authService.CreateStaffAsync(request, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, user);
     }
 
     [Authorize]
@@ -76,10 +71,4 @@ public class AuthController(IAuthService authService) : ControllerBase
             ? Problem(title: "La sesión ya no es válida.", statusCode: StatusCodes.Status401Unauthorized)
             : Ok(user);
     }
-
-    private ObjectResult ErrorResult(ServiceError error, string? message) => error switch
-    {
-        ServiceError.Conflict => Problem(title: message, statusCode: StatusCodes.Status409Conflict),
-        _ => Problem(title: message, statusCode: StatusCodes.Status400BadRequest)
-    };
 }
