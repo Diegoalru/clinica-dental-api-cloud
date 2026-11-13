@@ -18,10 +18,48 @@ public class AuthController(IAuthService authService) : ControllerBase
     {
         var response = await authService.LoginAsync(request, cancellationToken);
 
-        // Same answer for every failure so it doesn't reveal which emails exist
+        // La misma respuesta para cualquier fallo, para no revelar qué correos existen
         return response is null
             ? Problem(title: "Credenciales inválidas.", statusCode: StatusCodes.Status401Unauthorized)
             : Ok(response);
+    }
+
+    /// <summary>
+    ///     Registro público de pacientes. Devuelve el token, así el paciente queda con la sesión iniciada.
+    /// </summary>
+    [AllowAnonymous]
+    [HttpPost("register")]
+    [ProducesResponseType<LoginResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<LoginResponse>> Register(RegisterPatientRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.RegisterPatientAsync(request, cancellationToken);
+
+        return result.Succeeded
+            ? CreatedAtAction(nameof(Me), result.Value)
+            : ErrorResult(result.Error, result.Message);
+    }
+
+    /// <summary>
+    ///     Crea cuentas del personal. Solo un administrador puede hacerlo.
+    /// </summary>
+    [Authorize(Roles = AppRoles.Admin)]
+    [HttpPost("staff")]
+    [ProducesResponseType<UserResponse>(StatusCodes.Status201Created)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<UserResponse>> CreateStaff(CreateStaffRequest request,
+        CancellationToken cancellationToken)
+    {
+        var result = await authService.CreateStaffAsync(request, cancellationToken);
+
+        return result.Succeeded
+            ? StatusCode(StatusCodes.Status201Created, result.Value)
+            : ErrorResult(result.Error, result.Message);
     }
 
     [Authorize]
@@ -38,4 +76,10 @@ public class AuthController(IAuthService authService) : ControllerBase
             ? Problem(title: "La sesión ya no es válida.", statusCode: StatusCodes.Status401Unauthorized)
             : Ok(user);
     }
+
+    private ObjectResult ErrorResult(ServiceError error, string? message) => error switch
+    {
+        ServiceError.Conflict => Problem(title: message, statusCode: StatusCodes.Status409Conflict),
+        _ => Problem(title: message, statusCode: StatusCodes.Status400BadRequest)
+    };
 }
