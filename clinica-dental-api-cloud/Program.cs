@@ -1,6 +1,7 @@
 using System.Text;
 using clinica_dental_api_cloud.Conventions;
 using clinica_dental_api_cloud.Data;
+using clinica_dental_api_cloud.Errors;
 using clinica_dental_api_cloud.OpenApi;
 using clinica_dental_api_cloud.Options;
 using clinica_dental_api_cloud.Services;
@@ -69,6 +70,15 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<ICatalogService, CatalogService>();
+builder.Services.AddScoped<IPatientService, PatientService>();
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+
+// Expected errors (400/403/404/409) thrown by the services become ProblemDetails
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 // OpenAPI with the Bearer scheme so Scalar shows the token field
 builder.Services.AddOpenApi(options =>

@@ -20,7 +20,7 @@ public class AuthService(ClinicaDbContext db, ITokenService tokenService) : IAut
         var user = await db.Users
             .AsNoTracking()
             .Include(u => u.IdRoleNavigation)
-            .FirstOrDefaultAsync(u => u.Email.Equals(email, StringComparison.CurrentCultureIgnoreCase), cancellationToken);
+            .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
 
         var validPassword = VerifyPassword(request.Password, user?.PasswordHash ?? DummyHash);
 

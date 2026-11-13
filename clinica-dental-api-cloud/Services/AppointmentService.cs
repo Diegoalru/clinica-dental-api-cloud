@@ -1,0 +1,285 @@
+using System.Linq.Expressions;
+using clinica_dental_api_cloud.Data;
+using clinica_dental_api_cloud.Data.Entities;
+using clinica_dental_api_cloud.DTOs;
+using clinica_dental_api_cloud.DTOs.Appointments;
+using clinica_dental_api_cloud.Errors;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+
+namespace clinica_dental_api_cloud.Services;
+
+public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) : IAppointmentService
+{
+    private const string ActiveStatus = "ACTIVE";
+    private static readonly TimeSpan ReminderLeadTime = TimeSpan.FromHours(24);
+
+    private static readonly Expression<Func<Appointment, AppointmentResponse>> ToResponse = a =>
+        new AppointmentResponse(
+            a.IdAppointment,
+            a.IdPatient,
+            a.IdPatientNavigation.FullName,
+            a.IdDentist,
+            a.DentistService.IdDentistNavigation.IdUserNavigation.FullName,
+            a.IdService,
+            a.DentistService.IdServiceNavigation.Name,
+            a.StartsAt,
+            a.EndsAt,
+            a.Status,
+            a.PriceSnapshot,
+            a.CreatedAt);
+
+    public async Task<AppointmentResponse> CreateAsync(CreateAppointmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var dentistId = request.DentistId!.Value;
+        var serviceId = request.ServiceId!.Value;
+        var startsAt = ClinicTime.ToUtc(request.StartsAt!.Value);
+        var now = DateTime.UtcNow;
+
+        if (startsAt <= now)
+            throw ApiException.BadRequest("La cita debe ser en una fecha y hora futura.");
+
+        var patientId = await ResolvePatientIdAsync(request.PatientId, cancellationToken);
+
+        var patient = await db.Patients
+                          .AsNoTracking()
+                          .Where(p => p.IdPatient == patientId)
+                          .Select(p => new { p.Status, Email = p.Email ?? p.IdUserNavigation!.Email })
+                          .FirstOrDefaultAsync(cancellationToken)
+                      ?? throw ApiException.NotFound("El paciente no existe.");
+
+        if (patient.Status != ActiveStatus)
+            throw ApiException.BadRequest("El paciente está inactivo.");
+
+        // The pair must exist in dentist_services (the appointment's composite FK)
+        var offering = await db.DentistServices
+                           .AsNoTracking()
+                           .Where(ds => ds.IdDentist == dentistId && ds.IdService == serviceId)
+                           .Select(ds => new
+                           {
+                               DentistStatus = ds.IdDentistNavigation.Status,
+                               ServiceStatus = ds.IdServiceNavigation.Status,
+                               ds.IdServiceNavigation.DurationMinutes,
+                               ds.IdServiceNavigation.Price
+                           })
+                           .FirstOrDefaultAsync(cancellationToken)
+                       ?? throw ApiException.BadRequest("El odontólogo no ofrece ese servicio.");
+
+        if (offering.DentistStatus != ActiveStatus)
+            throw ApiException.BadRequest("El odontólogo está inactivo.");
+        if (offering.ServiceStatus != ActiveStatus)
+            throw ApiException.BadRequest("El servicio está inactivo.");
+
+        // The backend calculates the end, never the client
+        var endsAt = startsAt.AddMinutes(offering.DurationMinutes);
+
+        await EnsureWithinScheduleAsync(dentistId, startsAt, endsAt, cancellationToken);
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var blocked = await db.DentistBlocks.AnyAsync(
+            b => b.IdDentist == dentistId && b.StartsAt < endsAt && startsAt < b.EndsAt, cancellationToken);
+        if (blocked)
+            throw ApiException.Conflict("El odontólogo no está disponible en ese horario.");
+
+        var appointment = new Appointment
+        {
+            IdPatient = patientId,
+            IdDentist = dentistId,
+            IdService = serviceId,
+            StartsAt = startsAt,
+            EndsAt = endsAt,
+            Status = AppointmentStatus.Pending,
+            PriceSnapshot = offering.Price
+        };
+
+        appointment.AppointmentLogs.Add(new AppointmentLog
+        {
+            ChangedBy = currentUser.UserId,
+            PreviousStatus = null,
+            NewStatus = AppointmentStatus.Pending,
+            Remarks = "Cita creada"
+        });
+
+        AddNotifications(appointment, patient.Email, now);
+
+        db.Appointments.Add(appointment);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+                                           {
+                                               SqlState: PostgresErrorCodes.ExclusionViolation
+                                           })
+        {
+            // appointments_no_overlap: another active appointment of this dentist overlaps
+            throw ApiException.Conflict("El espacio ya fue tomado. Elija otro horario.");
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+                                           {
+                                               SqlState: PostgresErrorCodes.ForeignKeyViolation
+                                           })
+        {
+            throw ApiException.BadRequest("El paciente, el odontólogo o el servicio no existen.");
+        }
+
+        return await db.Appointments
+            .AsNoTracking()
+            .Where(a => a.IdAppointment == appointment.IdAppointment)
+            .Select(ToResponse)
+            .FirstAsync(cancellationToken);
+    }
+
+    public async Task<PagedResponse<AppointmentResponse>> ListAsync(AppointmentQuery query,
+        CancellationToken cancellationToken)
+    {
+        var appointments = VisibleAppointments();
+
+        if (query.From is not null)
+        {
+            var from = ClinicTime.ToUtc(query.From.Value);
+            appointments = appointments.Where(a => a.StartsAt >= from);
+        }
+
+        if (query.To is not null)
+        {
+            var to = ClinicTime.ToUtc(query.To.Value);
+            appointments = appointments.Where(a => a.StartsAt < to);
+        }
+
+        if (query.DentistId is not null)
+            appointments = appointments.Where(a => a.IdDentist == query.DentistId);
+
+        if (query.PatientId is not null)
+            appointments = appointments.Where(a => a.IdPatient == query.PatientId);
+
+        if (!string.IsNullOrWhiteSpace(query.Status))
+        {
+            var status = query.Status.Trim().ToUpperInvariant();
+            if (!AppointmentStatus.All.Contains(status))
+                throw ApiException.BadRequest("El estado no es válido.");
+
+            appointments = appointments.Where(a => a.Status == status);
+        }
+
+        var totalCount = await appointments.CountAsync(cancellationToken);
+
+        var items = await appointments
+            .OrderByDescending(a => a.StartsAt)
+            .ThenByDescending(a => a.IdAppointment)
+            .Skip((query.Page - 1) * query.PageSize)
+            .Take(query.PageSize)
+            .Select(ToResponse)
+            .ToListAsync(cancellationToken);
+
+        return new PagedResponse<AppointmentResponse>(items, query.Page, query.PageSize, totalCount);
+    }
+
+    public async Task<AppointmentResponse> GetAsync(long id, CancellationToken cancellationToken)
+    {
+        return await VisibleAppointments()
+                   .Where(a => a.IdAppointment == id)
+                   .Select(ToResponse)
+                   .FirstOrDefaultAsync(cancellationToken)
+               ?? throw ApiException.NotFound("La cita no existe.");
+    }
+
+    /// <summary>
+    /// Staff sees every appointment; a dentist or a patient only their own.
+    /// </summary>
+    private IQueryable<Appointment> VisibleAppointments()
+    {
+        var appointments = db.Appointments.AsNoTracking();
+        var userId = currentUser.UserId;
+
+        return currentUser.Role switch
+        {
+            Roles.Admin or Roles.Receptionist => appointments,
+            Roles.Dentist => appointments.Where(a => a.DentistService.IdDentistNavigation.IdUser == userId),
+            Roles.Patient => appointments.Where(a => a.IdPatientNavigation.IdUser == userId),
+            _ => throw ApiException.Forbidden("No tiene permiso para ver citas.")
+        };
+    }
+
+    /// <summary>
+    /// A patient books only for their own record; staff must say which patient.
+    /// </summary>
+    private async Task<long> ResolvePatientIdAsync(long? requestedPatientId, CancellationToken cancellationToken)
+    {
+        if (currentUser.Role != Roles.Patient)
+            return requestedPatientId ?? throw ApiException.BadRequest("El paciente es obligatorio.");
+
+        var userId = currentUser.UserId;
+        var ownPatientId = await db.Patients
+                               .Where(p => p.IdUser == userId)
+                               .Select(p => (long?)p.IdPatient)
+                               .FirstOrDefaultAsync(cancellationToken)
+                           ?? throw ApiException.Forbidden("Su usuario no está vinculado a un paciente.");
+
+        if (requestedPatientId is not null && requestedPatientId != ownPatientId)
+            throw ApiException.Forbidden("Solo puede agendar citas para usted.");
+
+        return ownPatientId;
+    }
+
+    /// <summary>
+    /// The appointment must fit completely inside one of the dentist's working periods for that day
+    /// (dentist_schedules uses clinic local time).
+    /// </summary>
+    private async Task EnsureWithinScheduleAsync(long dentistId, DateTime startsAt, DateTime endsAt,
+        CancellationToken cancellationToken)
+    {
+        var localStart = ClinicTime.ToClinic(startsAt);
+        var localEnd = ClinicTime.ToClinic(endsAt);
+
+        if (localEnd.Date != localStart.Date)
+            throw ApiException.BadRequest("La cita debe empezar y terminar el mismo día.");
+
+        var day = ClinicTime.IsoDayOfWeek(localStart);
+        var start = TimeOnly.FromDateTime(localStart);
+        var end = TimeOnly.FromDateTime(localEnd);
+
+        var fits = await db.DentistSchedules.AnyAsync(
+            s => s.IdDentist == dentistId && s.DayOfWeek == day && s.StartTime <= start && s.EndTime >= end,
+            cancellationToken);
+
+        if (!fits)
+            throw ApiException.BadRequest("El horario está fuera de la jornada del odontólogo.");
+    }
+
+    /// <summary>
+    /// Confirmation now and a reminder 24 h before (skipped if that moment already passed).
+    /// The reminder Function sends them; without an email there is nobody to notify.
+    /// </summary>
+    private static void AddNotifications(Appointment appointment, string? recipient, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(recipient))
+            return;
+
+        appointment.Notifications.Add(new Notification
+        {
+            Type = "CONFIRMATION",
+            Channel = "EMAIL",
+            Recipient = recipient,
+            Status = "PENDING",
+            ScheduledFor = now
+        });
+
+        var reminderAt = appointment.StartsAt - ReminderLeadTime;
+        if (reminderAt > now)
+        {
+            appointment.Notifications.Add(new Notification
+            {
+                Type = "REMINDER",
+                Channel = "EMAIL",
+                Recipient = recipient,
+                Status = "PENDING",
+                ScheduledFor = reminderAt
+            });
+        }
+    }
+}
