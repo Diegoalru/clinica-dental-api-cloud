@@ -1,6 +1,7 @@
 using System.Text;
 using clinica_dental_api_cloud.Conventions;
 using clinica_dental_api_cloud.Data;
+using clinica_dental_api_cloud.Errors;
 using clinica_dental_api_cloud.OpenApi;
 using clinica_dental_api_cloud.Options;
 using clinica_dental_api_cloud.Services;
@@ -26,7 +27,14 @@ builder.Services.AddControllers(options =>
     options.Conventions.Add(new GlobalRoutePrefixConvention("api/v1")));
 
 // Consistent error responses (RFC 7807)
-builder.Services.AddProblemDetails();
+builder.Services.AddProblemDetails(options =>
+{
+    options.CustomizeProblemDetails = context =>
+    {
+        if (context.ProblemDetails is HttpValidationProblemDetails)
+            context.ProblemDetails.Title = "Hay datos inválidos en la solicitud.";
+    };
+});
 
 // CORS limited to the configured origins
 var allowedOrigins = configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
@@ -45,6 +53,15 @@ var jwtSection = configuration.GetSection(JwtOptions.SectionName);
 var jwtOptions = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
 if (string.IsNullOrWhiteSpace(jwtOptions.Key))
     throw new InvalidOperationException("Falta la clave JWT. Defina Jwt__Key.");
+if (string.IsNullOrWhiteSpace(jwtOptions.Issuer))
+    throw new InvalidOperationException("Falta el emisor JWT. Defina Jwt__Issuer.");
+if (string.IsNullOrWhiteSpace(jwtOptions.Audience))
+    throw new InvalidOperationException("Falta la audiencia JWT. Defina Jwt__Audience.");
+// HMAC-SHA256 exige una clave de al menos 256 bits; con una más corta el API arrancaría y fallaría en el primer login
+if (Encoding.UTF8.GetByteCount(jwtOptions.Key) < 32)
+    throw new InvalidOperationException("La clave JWT es muy corta. Jwt__Key debe tener al menos 32 bytes.");
+if (jwtOptions.ExpiresInMinutes <= 0)
+    throw new InvalidOperationException("Jwt__ExpiresInMinutes debe ser mayor que cero.");
 
 builder.Services.Configure<JwtOptions>(jwtSection);
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
@@ -69,6 +86,15 @@ builder.Services.AddAuthorization();
 
 builder.Services.AddScoped<ITokenService, TokenService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<ICurrentUser, CurrentUser>();
+builder.Services.AddScoped<ICatalogService, CatalogService>();
+builder.Services.AddScoped<IPatientService, PatientService>();
+builder.Services.AddScoped<IAppointmentService, AppointmentService>();
+
+// Expected errors (400/403/404/409) thrown by the services become ProblemDetails
+builder.Services.AddExceptionHandler<ApiExceptionHandler>();
 
 // OpenAPI with the Bearer scheme so Scalar shows the token field
 builder.Services.AddOpenApi(options =>
