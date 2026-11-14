@@ -6,18 +6,27 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <RootNamespace>clinica_dental_api_cloud</RootNamespace>
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
+        <!-- Solo los recursos en español: evita copiar carpetas de traducciones (cs, de, ja...) de los paquetes -->
+        <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
     </PropertyGroup>
 
     <ItemGroup>
         <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
         <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
         <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.14" />
+        <!-- Fija EF Core en la misma versión que el paquete Design; sin esto, en Release quedaría la 10.0.4 que trae Npgsql -->
+        <PackageReference Include="Microsoft.EntityFrameworkCore.Relational" Version="10.0.14" />
+        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
+        <PackageReference Include="Scalar.AspNetCore" Version="2.18.7" />
+    </ItemGroup>
+
+    <!-- Solo para el scaffold con dotnet ef (corre en Debug). En Release no se publica: arrastraría Roslyn y
+         unos 25 MB que el API no usa, y la imagen de Docker debe pesar menos de 200 MB -->
+    <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
             <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
             <PrivateAssets>all</PrivateAssets>
         </PackageReference>
-        <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="10.0.3" />
-        <PackageReference Include="Scalar.AspNetCore" Version="2.18.7" />
     </ItemGroup>
 
     <ItemGroup>

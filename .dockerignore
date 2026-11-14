@@ -13,6 +13,8 @@
 **/.idea
 **/.fleet
 **/.cursor
+**/.claude
+**/*.Tests/
 **/*.*proj.user
 **/*.dbmdl
 **/*.jfm
