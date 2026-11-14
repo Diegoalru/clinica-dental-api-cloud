@@ -8,6 +8,9 @@
         <DockerDefaultTargetOS>Linux</DockerDefaultTargetOS>
         <!-- Solo los recursos en español: evita copiar carpetas de traducciones (cs, de, ja...) de los paquetes -->
         <SatelliteResourceLanguages>es</SatelliteResourceLanguages>
+        <!-- Los comentarios /// de controladores y DTO se publican en OpenAPI (Scalar). 1591: no exige comentar todo -->
+        <GenerateDocumentationFile>true</GenerateDocumentationFile>
+        <NoWarn>$(NoWarn);1591</NoWarn>
     </PropertyGroup>
 
     <ItemGroup>
