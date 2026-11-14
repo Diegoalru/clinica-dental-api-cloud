@@ -186,13 +186,108 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
         return new PagedResponse<AppointmentResponse>(items, query.Page, query.PageSize, totalCount);
     }
 
-    public async Task<AppointmentResponse> GetAsync(long id, CancellationToken cancellationToken)
+    public async Task<AppointmentDetailResponse> GetAsync(long id, CancellationToken cancellationToken)
     {
         return await VisibleAppointments()
                    .Where(a => a.IdAppointment == id)
-                   .Select(ToResponse)
+                   .Select(a => new AppointmentDetailResponse(
+                       a.IdAppointment,
+                       a.IdPatient,
+                       a.IdPatientNavigation.FullName,
+                       a.IdPatientNavigation.Identification,
+                       a.IdPatientNavigation.Phone,
+                       a.IdPatientNavigation.Email ?? a.IdPatientNavigation.IdUserNavigation!.Email,
+                       a.IdDentist,
+                       a.DentistService.IdDentistNavigation.IdUserNavigation.FullName,
+                       a.IdService,
+                       a.DentistService.IdServiceNavigation.Name,
+                       a.StartsAt,
+                       a.EndsAt,
+                       a.Status,
+                       a.PriceSnapshot,
+                       a.CreatedAt,
+                       a.AppointmentLogs
+                           .OrderBy(l => l.ChangedAt).ThenBy(l => l.IdLog)
+                           .Select(l => new AppointmentLogResponse(
+                               l.IdLog, l.PreviousStatus, l.NewStatus, l.ChangedAt,
+                               l.ChangedByNavigation.FullName, l.Remarks))
+                           .ToList(),
+                       a.Notifications
+                           .OrderBy(n => n.ScheduledFor).ThenBy(n => n.IdNotification)
+                           .Select(n => new NotificationResponse(
+                               n.IdNotification, n.Type, n.Channel, n.Status, n.ScheduledFor, n.SentAt))
+                           .ToList()))
+                   .AsSplitQuery()
                    .FirstOrDefaultAsync(cancellationToken)
                ?? throw ApiException.NotFound("La cita no existe.");
+    }
+
+    public async Task<AppointmentDetailResponse> ChangeStatusAsync(long id, UpdateAppointmentStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var target = request.Status!.Trim().ToUpperInvariant();
+        var remarks = string.IsNullOrWhiteSpace(request.Remarks) ? null : request.Remarks.Trim();
+
+        if (target == AppointmentStatus.Cancelled && remarks is null)
+            throw ApiException.BadRequest("Indique el motivo de la cancelación.");
+
+        // 404 también si la cita existe pero el usuario no la puede ver (otro paciente u otro odontólogo)
+        if (!await VisibleAppointments().AnyAsync(a => a.IdAppointment == id, cancellationToken))
+            throw ApiException.NotFound("La cita no existe.");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        // FOR UPDATE: si dos personas cambian la misma cita a la vez, la segunda espera y ve el estado nuevo
+        await db.Database.ExecuteSqlInterpolatedAsync(
+            $"SELECT 1 FROM appointments WHERE id_appointment = {id} FOR UPDATE", cancellationToken);
+
+        var appointment = await db.Appointments
+            .Include(a => a.Notifications)
+            .FirstAsync(a => a.IdAppointment == id, cancellationToken);
+
+        var now = DateTime.UtcNow;
+        AppointmentStatusRules.EnsureCanChange(currentUser.Role, appointment.Status, target, appointment.StartsAt, now);
+
+        appointment.AppointmentLogs.Add(new AppointmentLog
+        {
+            ChangedBy = currentUser.UserId,
+            PreviousStatus = appointment.Status,
+            NewStatus = target,
+            Remarks = remarks
+        });
+        appointment.Status = target;
+        appointment.UpdatedAt = now;
+
+        if (target == AppointmentStatus.Cancelled)
+            CancelNotifications(appointment, now);
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+
+        return await GetAsync(id, cancellationToken);
+    }
+
+    /// <summary>
+    /// Al cancelar, los avisos pendientes (el recordatorio) ya no se envían y se programa el aviso de cancelación
+    /// al mismo correo de la confirmación.
+    /// </summary>
+    private static void CancelNotifications(Appointment appointment, DateTime now)
+    {
+        foreach (var notification in appointment.Notifications.Where(n => n.Status == "PENDING"))
+            notification.Status = "CANCELLED";
+
+        var recipient = appointment.Notifications.Select(n => n.Recipient).FirstOrDefault();
+        if (recipient is null)
+            return;
+
+        appointment.Notifications.Add(new Notification
+        {
+            Type = "CANCELLATION",
+            Channel = "EMAIL",
+            Recipient = recipient,
+            Status = "PENDING",
+            ScheduledFor = now
+        });
     }
 
     public async Task<IReadOnlyList<AvailabilitySlotResponse>> GetAvailabilityAsync(AvailabilityQuery query,

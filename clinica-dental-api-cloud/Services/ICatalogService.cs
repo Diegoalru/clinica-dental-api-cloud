@@ -13,4 +13,9 @@ public interface ICatalogService
     /// Active dentists; with serviceId, only those enabled for that service.
     /// </summary>
     Task<IReadOnlyList<DentistResponse>> GetDentistsAsync(long? serviceId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// El odontólogo vinculado al usuario de la sesión, con su horario y bloqueos. 404 si la cuenta no tiene ficha.
+    /// </summary>
+    Task<DentistProfileResponse> GetOwnDentistAsync(CancellationToken cancellationToken);
 }

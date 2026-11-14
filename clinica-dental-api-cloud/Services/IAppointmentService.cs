@@ -18,7 +18,14 @@ public interface IAppointmentService
     /// <summary>
     /// 404 when it doesn't exist or the current user may not see it.
     /// </summary>
-    Task<AppointmentResponse> GetAsync(long id, CancellationToken cancellationToken);
+    Task<AppointmentDetailResponse> GetAsync(long id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Cambia el estado (reglas en AppointmentStatusRules) y lo registra en appointment_logs, en una transacción.
+    /// Al cancelar, anula los avisos pendientes y programa el de cancelación.
+    /// </summary>
+    Task<AppointmentDetailResponse> ChangeStatusAsync(long id, UpdateAppointmentStatusRequest request,
+        CancellationToken cancellationToken);
 
     /// <summary>
     /// Espacios de un día para un odontólogo y un servicio, cruzando su horario, bloqueos y citas no canceladas.
