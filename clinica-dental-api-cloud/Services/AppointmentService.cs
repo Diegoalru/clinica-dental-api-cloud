@@ -40,6 +40,11 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
         if (startsAt <= now)
             throw ApiException.BadRequest("La cita debe ser en una fecha y hora futura.");
 
+        // Mismas horas que ofrece GET /appointments/availability
+        if (!AvailabilityCalculator.IsSlotStart(startsAt))
+            throw ApiException.BadRequest(
+                "La cita debe empezar en un intervalo de 15 minutos (por ejemplo 09:00, 09:15 o 09:30).");
+
         var patientId = await ResolvePatientIdAsync(request.PatientId, cancellationToken);
 
         var patient = await db.Patients
@@ -59,6 +64,7 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
                            .Select(ds => new
                            {
                                DentistStatus = ds.IdDentistNavigation.Status,
+                               UserStatus = ds.IdDentistNavigation.IdUserNavigation.Status,
                                ServiceStatus = ds.IdServiceNavigation.Status,
                                ds.IdServiceNavigation.DurationMinutes,
                                ds.IdServiceNavigation.Price
@@ -66,7 +72,8 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
                            .FirstOrDefaultAsync(cancellationToken)
                        ?? throw ApiException.BadRequest("El odontólogo no ofrece ese servicio.");
 
-        if (offering.DentistStatus != RecordStatus.Active)
+        // Igual que GET /dentists y la disponibilidad: la ficha y la cuenta del odontólogo deben estar activas
+        if (offering.DentistStatus != RecordStatus.Active || offering.UserStatus != RecordStatus.Active)
             throw ApiException.BadRequest("El odontólogo está inactivo.");
         if (offering.ServiceStatus != RecordStatus.Active)
             throw ApiException.BadRequest("El servicio está inactivo.");

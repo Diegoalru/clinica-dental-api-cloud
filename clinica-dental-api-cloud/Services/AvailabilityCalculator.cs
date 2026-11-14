@@ -10,6 +10,17 @@ public static class AvailabilityCalculator
     /// </summary>
     public const int SlotStepMinutes = 15;
 
+    /// <summary>
+    /// Indica si el instante es el inicio de un espacio: en hora de Costa Rica, minutos múltiplos de 15
+    /// y sin segundos (09:00, 09:15...). POST /appointments solo acepta estas horas, las mismas que ofrece
+    /// la disponibilidad.
+    /// </summary>
+    public static bool IsSlotStart(DateTime utc)
+    {
+        var local = ClinicTime.ToClinic(utc);
+        return local.Minute % SlotStepMinutes == 0 && local.TimeOfDay.Ticks % TimeSpan.TicksPerMinute == 0;
+    }
+
     /// <param name="date">Día en hora de Costa Rica.</param>
     /// <param name="durationMinutes">Duración del servicio.</param>
     /// <param name="periods">Jornadas del odontólogo ese día, en hora de Costa Rica (dentist_schedules).</param>
@@ -32,7 +43,9 @@ public static class AvailabilityCalculator
         foreach (var (periodStart, periodEnd) in periods)
         {
             // En minutos desde la medianoche para no dar la vuelta al reloj con TimeOnly
-            var startMinute = periodStart.Hour * 60 + periodStart.Minute;
+            // Si la jornada no empieza en un múltiplo de 15 (08:10), el primer espacio es el siguiente (08:15)
+            var startMinute = (periodStart.Hour * 60 + periodStart.Minute + SlotStepMinutes - 1)
+                              / SlotStepMinutes * SlotStepMinutes;
             var endMinute = periodEnd.Hour * 60 + periodEnd.Minute;
 
             for (var minute = startMinute; minute + durationMinutes <= endMinute; minute += SlotStepMinutes)

@@ -130,6 +130,37 @@ public class AvailabilityCalculatorTests
     }
 
     [Fact]
+    public void JornadaQueNoEmpiezaEnMultiploDe15_EmpiezaEnElSiguiente()
+    {
+        var slots = AvailabilityCalculator.Compute(Friday, 30,
+            [(new TimeOnly(8, 10), new TimeOnly(9, 0))], NoBusy, DayBefore);
+
+        Assert.Equal(["08:15", "08:30"], Times(slots));
+        Assert.All(slots, s => Assert.True(AvailabilityCalculator.IsSlotStart(
+            ClinicTime.ToUtc(Friday.ToDateTime(s.Time)))));
+    }
+
+    [Theory]
+    [InlineData("2026-11-20T09:00:00", true)]
+    [InlineData("2026-11-20T09:15:00", true)]
+    [InlineData("2026-11-20T16:45:00", true)]
+    [InlineData("2026-11-20T09:00:00-06:00", true)]
+    [InlineData("2026-11-20T15:30:00Z", true)]          // 09:30 en Costa Rica
+    [InlineData("2026-11-20T10:45:00-05:00", true)]     // 09:45 en Costa Rica
+    [InlineData("2026-11-20T09:07:00", false)]
+    [InlineData("2026-11-20T09:20:00", false)]
+    [InlineData("2026-11-20T09:00:30", false)]
+    [InlineData("2026-11-20T09:00:00.500", false)]
+    [InlineData("2026-11-20T15:03:00Z", false)]
+    public void IsSlotStart_SoloMultiplosDe15SinSegundos(string value, bool expected)
+    {
+        // Se lee como lo hace el API: System.Text.Json y luego ClinicTime.ToUtc
+        var parsed = System.Text.Json.JsonSerializer.Deserialize<DateTime>($"\"{value}\"");
+
+        Assert.Equal(expected, AvailabilityCalculator.IsSlotStart(ClinicTime.ToUtc(parsed)));
+    }
+
+    [Fact]
     public void DuracionInvalida_Falla()
     {
         Assert.Throws<ArgumentOutOfRangeException>(() =>
