@@ -63,6 +63,18 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         return await appointmentService.ChangeStatusAsync(id, request, cancellationToken);
     }
 
+    [HttpPatch("{id:long}/reschedule")]
+    [Authorize(Roles = Roles.Staff)]
+    [ProducesResponseType<AppointmentDetailResponse>(StatusCodes.Status200OK)]
+    public Task<AppointmentDetailResponse> Reschedule(long id, RescheduleAppointmentRequest request,
+        CancellationToken cancellationToken) => appointmentService.RescheduleAsync(id, request, cancellationToken);
+
+    [HttpPost("{id:long}/notifications/resend")]
+    [Authorize(Roles = Roles.Staff)]
+    [ProducesResponseType<AppointmentDetailResponse>(StatusCodes.Status200OK)]
+    public Task<AppointmentDetailResponse> ResendConfirmation(long id, CancellationToken cancellationToken) =>
+        appointmentService.ResendConfirmationAsync(id, cancellationToken);
+
     [HttpPost]
     [Authorize(Roles = Roles.CanBook)]
     [ProducesResponseType<AppointmentResponse>(StatusCodes.Status201Created)]
