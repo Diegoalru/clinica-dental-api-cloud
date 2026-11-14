@@ -41,7 +41,7 @@ El repositorio no incluye secretos. El API lee su configuración de variables de
 **Cadena de conexión:**
 
 - Base local (Supabase CLI): `Host=127.0.0.1;Port=54322;Database=postgres;Username=postgres;Password=postgres`
-- Base en Supabase: se obtiene en el panel del proyecto, botón **Connect → Direct → Session pooler**, en el formato `Host=<host>;Port=5432;Database=postgres;Username=<usuario>;Password=<contraseña>;SSL Mode=Require`. La contraseña la comparte el equipo por un canal privado; nunca se sube al repositorio.
+- Base en Supabase: se utiliza el **Transaction pooler** (puerto 6543) para garantizar compatibilidad con IPv4 y entornos de contenedores (Docker/Azure): `Host=aws-0-us-east-1.pooler.supabase.com;Port=6543;Database=postgres;Username=postgres.<project-ref>;Password=<contraseña>;SSL Mode=Require;Trust Server Certificate=true;No Reset On Close=true`. La contraseña la comparte el equipo por un canal privado; nunca se sube al repositorio.
 
 En Windows (PowerShell) se pueden guardar como variables de usuario:
 
@@ -63,7 +63,33 @@ dotnet run --project clinica-dental-api-cloud
 
 El API queda disponible en `http://localhost:5125`. Todas las rutas comienzan con `/api/v1`.
 
-La documentación interactiva, con la lista completa de endpoints, está en `http://localhost:5125/scalar/v1` (solo en modo Development).
+La documentación interactiva con Scalar, con la lista completa de endpoints, está en `http://localhost:5125/api/scalar/v1`.
+
+### Ejecución con Docker
+
+El API cuenta con un Dockerfile optimizado basado en imágenes *chiseled* de .NET (< 140 MB).
+
+Construcción de la imagen (desde la raíz de este repositorio):
+
+```powershell
+docker build -t clinica-dental-api -f clinica-dental-api-cloud/Dockerfile .
+```
+
+Ejecución del contenedor:
+
+```powershell
+docker run -d --name clinica-api -p 5125:8080 `
+  -e ConnectionStrings__ClinicaDental="<cadena de conexión>" `
+  -e Jwt__Key="<clave aleatoria de al menos 32 caracteres>" `
+  -e Cors__AllowedOrigins__0="http://localhost:5173" `
+  clinica-dental-api
+```
+
+También puede levantarse junto con todo el sistema usando Docker Compose desde la raíz del workspace:
+
+```powershell
+docker compose up -d api
+```
 
 ## Pruebas
 
@@ -117,4 +143,4 @@ clinica-dental-api-cloud/
 |---|---|
 | El API no arranca y menciona la cadena de conexión o la clave JWT | Falta `ConnectionStrings__ClinicaDental` o `Jwt__Key` |
 | El frontend muestra "No se pudo conectar con el servidor" y la consola del navegador menciona CORS | Falta `Cors__AllowedOrigins__0` con el origen del frontend; configúrela y reinicie el API |
-| No conecta a Supabase | Use el **Session pooler**, no la conexión directa (la directa solo funciona por IPv6) |
+| No conecta a Supabase | Use el **Transaction pooler** (puerto 6543, no 5432) y verifique `SSL Mode=Require;Trust Server Certificate=true`. La conexión directa (puerto 5432) es solo IPv6 y falla en redes sin soporte IPv6 |
