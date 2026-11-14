@@ -10,7 +10,11 @@ namespace clinica_dental_api_cloud.Controllers;
 [Route("dentists")]
 public class DentistsController(ICatalogService catalogService) : ControllerBase
 {
-    /// <param name="serviceId">Optional: only dentists enabled for this service.</param>
+    /// <summary>Listar odontólogos</summary>
+    /// <remarks>
+    /// Odontólogos activos (ficha y cuenta activas).
+    /// </remarks>
+    /// <param name="serviceId">Opcional: solo los habilitados para este servicio.</param>
     /// <param name="cancellationToken"></param>
     [HttpGet]
     [ProducesResponseType<IReadOnlyList<DentistResponse>>(StatusCodes.Status200OK)]
@@ -18,5 +22,19 @@ public class DentistsController(ICatalogService catalogService) : ControllerBase
         CancellationToken cancellationToken)
     {
         return await catalogService.GetDentistsAsync(serviceId, cancellationToken);
+    }
+
+    /// <summary>Mi ficha de odontólogo</summary>
+    /// <remarks>
+    /// El odontólogo con sesión, con su horario semanal y sus bloqueos ("Mi agenda" y "Mi horario").
+    /// </remarks>
+    [HttpGet("me")]
+    [Authorize(Roles = Roles.Dentist)]
+    [ProducesResponseType<DentistProfileResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<DentistProfileResponse> Me(CancellationToken cancellationToken)
+    {
+        return await catalogService.GetOwnDentistAsync(cancellationToken);
     }
 }
