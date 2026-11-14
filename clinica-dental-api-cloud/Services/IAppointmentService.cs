@@ -27,6 +27,11 @@ public interface IAppointmentService
     Task<AppointmentDetailResponse> ChangeStatusAsync(long id, UpdateAppointmentStatusRequest request,
         CancellationToken cancellationToken);
 
+    Task<AppointmentDetailResponse> RescheduleAsync(long id, RescheduleAppointmentRequest request,
+        CancellationToken cancellationToken);
+
+    Task<AppointmentDetailResponse> ResendConfirmationAsync(long id, CancellationToken cancellationToken);
+
     /// <summary>
     /// Espacios de un día para un odontólogo y un servicio, cruzando su horario, bloqueos y citas no canceladas.
     /// </summary>
