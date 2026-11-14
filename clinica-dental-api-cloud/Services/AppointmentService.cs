@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Linq.Expressions;
 using clinica_dental_api_cloud.Data;
 using clinica_dental_api_cloud.Data.Entities;
@@ -185,6 +186,78 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
                    .Select(ToResponse)
                    .FirstOrDefaultAsync(cancellationToken)
                ?? throw ApiException.NotFound("La cita no existe.");
+    }
+
+    public async Task<IReadOnlyList<AvailabilitySlotResponse>> GetAvailabilityAsync(AvailabilityQuery query,
+        CancellationToken cancellationToken)
+    {
+        var dentistId = query.DentistId!.Value;
+        var serviceId = query.ServiceId!.Value;
+        var date = query.Date!.Value;
+
+        var offering = await db.DentistServices
+                           .AsNoTracking()
+                           .Where(ds => ds.IdDentist == dentistId && ds.IdService == serviceId)
+                           .Select(ds => new
+                           {
+                               DentistStatus = ds.IdDentistNavigation.Status,
+                               UserStatus = ds.IdDentistNavigation.IdUserNavigation.Status,
+                               ServiceStatus = ds.IdServiceNavigation.Status,
+                               ds.IdServiceNavigation.DurationMinutes
+                           })
+                           .FirstOrDefaultAsync(cancellationToken)
+                       ?? throw ApiException.BadRequest("El odontólogo no ofrece ese servicio.");
+
+        // Igual que GET /dentists: la ficha y la cuenta del odontólogo deben estar activas
+        if (offering.DentistStatus != RecordStatus.Active || offering.UserStatus != RecordStatus.Active)
+            throw ApiException.BadRequest("El odontólogo está inactivo.");
+        if (offering.ServiceStatus != RecordStatus.Active)
+            throw ApiException.BadRequest("El servicio está inactivo.");
+
+        // El día de la semana es el de la fecha en Costa Rica, no el de UTC
+        var day = ClinicTime.IsoDayOfWeek(date.ToDateTime(TimeOnly.MinValue));
+        var periods = await db.DentistSchedules
+            .AsNoTracking()
+            .Where(s => s.IdDentist == dentistId && s.DayOfWeek == day)
+            .Select(s => new { s.StartTime, s.EndTime })
+            .ToListAsync(cancellationToken);
+
+        if (periods.Count == 0)
+            return [];
+
+        // El día completo en Costa Rica, pasado a UTC para comparar con la base
+        var dayStart = ClinicTime.ToUtc(date.ToDateTime(TimeOnly.MinValue));
+        var dayEnd = ClinicTime.ToUtc(date.AddDays(1).ToDateTime(TimeOnly.MinValue));
+
+        // Ocupan el espacio todas las citas menos las canceladas, como en appointments_no_overlap
+        var appointments = await db.Appointments
+            .AsNoTracking()
+            .Where(a => a.IdDentist == dentistId && a.Status != AppointmentStatus.Cancelled
+                        && a.StartsAt < dayEnd && dayStart < a.EndsAt)
+            .Select(a => new { a.StartsAt, a.EndsAt })
+            .ToListAsync(cancellationToken);
+
+        var blocks = await db.DentistBlocks
+            .AsNoTracking()
+            .Where(b => b.IdDentist == dentistId && b.StartsAt < dayEnd && dayStart < b.EndsAt)
+            .Select(b => new { b.StartsAt, b.EndsAt })
+            .ToListAsync(cancellationToken);
+
+        var busy = appointments.Select(a => (a.StartsAt, a.EndsAt))
+            .Concat(blocks.Select(b => (b.StartsAt, b.EndsAt)))
+            .ToList();
+
+        var slots = AvailabilityCalculator.Compute(
+            date,
+            offering.DurationMinutes,
+            periods.Select(p => (p.StartTime, p.EndTime)),
+            busy,
+            DateTime.UtcNow);
+
+        return slots
+            .Select(slot => new AvailabilitySlotResponse(slot.Time.ToString("HH:mm", CultureInfo.InvariantCulture),
+                slot.Available))
+            .ToList();
     }
 
     /// <summary>
