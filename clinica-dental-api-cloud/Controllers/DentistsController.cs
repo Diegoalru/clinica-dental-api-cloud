@@ -19,4 +19,17 @@ public class DentistsController(ICatalogService catalogService) : ControllerBase
     {
         return await catalogService.GetDentistsAsync(serviceId, cancellationToken);
     }
+
+    /// <summary>
+    /// El odontólogo con sesión, con su horario semanal y sus bloqueos ("Mi agenda" y "Mi horario").
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = Roles.Dentist)]
+    [ProducesResponseType<DentistProfileResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
+    public async Task<DentistProfileResponse> Me(CancellationToken cancellationToken)
+    {
+        return await catalogService.GetOwnDentistAsync(cancellationToken);
+    }
 }
