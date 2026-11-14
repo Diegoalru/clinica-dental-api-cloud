@@ -11,7 +11,11 @@ namespace clinica_dental_api_cloud.Controllers;
 [Route("patients")]
 public class PatientsController(IPatientService patientService) : ControllerBase
 {
-    /// <param name="search">Part of the name or the identification.</param>
+    /// <summary>Buscar pacientes</summary>
+    /// <remarks>
+    /// Búsqueda de pacientes activos por nombre o identificación (hasta 20). Solo personal de la clínica.
+    /// </remarks>
+    /// <param name="search">Parte del nombre o de la identificación; la cédula se encuentra con o sin guiones.</param>
     /// <param name="cancellationToken"></param>
     [HttpGet]
     [Authorize(Roles = Roles.Staff)]
@@ -23,9 +27,10 @@ public class PatientsController(IPatientService patientService) : ControllerBase
         return await patientService.SearchAsync(search, cancellationToken);
     }
 
-    /// <summary>
+    /// <summary>Mi ficha de paciente</summary>
+    /// <remarks>
     /// Ficha del paciente con sesión ("Mi perfil"). Solo para el rol PATIENT.
-    /// </summary>
+    /// </remarks>
     [HttpGet("me")]
     [Authorize(Roles = Roles.Patient)]
     [ProducesResponseType<PatientProfileResponse>(StatusCodes.Status200OK)]
