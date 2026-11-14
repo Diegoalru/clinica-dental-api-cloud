@@ -20,6 +20,17 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         return await appointmentService.ListAsync(query, cancellationToken);
     }
 
+    [HttpGet("availability")]
+    [Authorize(Roles = Roles.CanBook)]
+    [ProducesResponseType<IReadOnlyList<AvailabilitySlotResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status400BadRequest)]
+    public async Task<IReadOnlyList<AvailabilitySlotResponse>> Availability(
+        [FromQuery] long dentistId, [FromQuery] long serviceId, [FromQuery] DateOnly date,
+        CancellationToken cancellationToken)
+    {
+        return await appointmentService.GetAvailabilityAsync(dentistId, serviceId, date, cancellationToken);
+    }
+
     [HttpGet("{id:long}")]
     [ProducesResponseType<AppointmentResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]

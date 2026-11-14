@@ -28,6 +28,61 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
             a.PriceSnapshot,
             a.CreatedAt);
 
+    public async Task<IReadOnlyList<AvailabilitySlotResponse>> GetAvailabilityAsync(
+        long dentistId, long serviceId, DateOnly date, CancellationToken cancellationToken)
+    {
+        if (dentistId <= 0 || serviceId <= 0 || date == default)
+            throw ApiException.BadRequest("Seleccione odontólogo, servicio y fecha válidos.");
+
+        var duration = await db.DentistServices.AsNoTracking()
+            .Where(ds => ds.IdDentist == dentistId && ds.IdService == serviceId
+                         && ds.IdDentistNavigation.Status == RecordStatus.Active
+                         && ds.IdDentistNavigation.IdUserNavigation.Status == RecordStatus.Active
+                         && ds.IdServiceNavigation.Status == RecordStatus.Active)
+            .Select(ds => (int?)ds.IdServiceNavigation.DurationMinutes)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        if (duration is null)
+            throw ApiException.BadRequest("El odontólogo no ofrece ese servicio.");
+
+        var localDay = date.ToDateTime(TimeOnly.MinValue, DateTimeKind.Unspecified);
+        var dayStartUtc = ClinicTime.ToUtc(localDay);
+        var dayEndUtc = ClinicTime.ToUtc(localDay.AddDays(1));
+        var dayOfWeek = ClinicTime.IsoDayOfWeek(localDay);
+
+        var schedules = await db.DentistSchedules.AsNoTracking()
+            .Where(s => s.IdDentist == dentistId && s.DayOfWeek == dayOfWeek)
+            .OrderBy(s => s.StartTime)
+            .ToListAsync(cancellationToken);
+        var blocks = await db.DentistBlocks.AsNoTracking()
+            .Where(b => b.IdDentist == dentistId && b.StartsAt < dayEndUtc && b.EndsAt > dayStartUtc)
+            .Select(b => new { b.StartsAt, b.EndsAt })
+            .ToListAsync(cancellationToken);
+        var appointments = await db.Appointments.AsNoTracking()
+            .Where(a => a.IdDentist == dentistId && a.Status != AppointmentStatus.Cancelled
+                        && a.StartsAt < dayEndUtc && a.EndsAt > dayStartUtc)
+            .Select(a => new { a.StartsAt, a.EndsAt })
+            .ToListAsync(cancellationToken);
+
+        var now = DateTime.UtcNow;
+        var slots = new List<AvailabilitySlotResponse>();
+        foreach (var schedule in schedules)
+        {
+            for (var time = schedule.StartTime; time.AddMinutes(duration.Value) <= schedule.EndTime;
+                 time = time.AddMinutes(30))
+            {
+                var startsAt = ClinicTime.ToUtc(date.ToDateTime(time, DateTimeKind.Unspecified));
+                var endsAt = startsAt.AddMinutes(duration.Value);
+                var available = startsAt > now
+                    && !blocks.Any(b => b.StartsAt < endsAt && startsAt < b.EndsAt)
+                    && !appointments.Any(a => a.StartsAt < endsAt && startsAt < a.EndsAt);
+                slots.Add(new AvailabilitySlotResponse(time.ToString("HH:mm"), available));
+            }
+        }
+
+        return slots.OrderBy(slot => slot.Time).DistinctBy(slot => slot.Time).ToList();
+    }
+
     public async Task<AppointmentResponse> CreateAsync(CreateAppointmentRequest request,
         CancellationToken cancellationToken)
     {

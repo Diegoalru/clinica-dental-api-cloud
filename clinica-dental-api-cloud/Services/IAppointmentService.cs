@@ -10,6 +10,9 @@ public interface IAppointmentService
     /// </summary>
     Task<AppointmentResponse> CreateAsync(CreateAppointmentRequest request, CancellationToken cancellationToken);
 
+    Task<IReadOnlyList<AvailabilitySlotResponse>> GetAvailabilityAsync(
+        long dentistId, long serviceId, DateOnly date, CancellationToken cancellationToken);
+
     /// <summary>
     /// Appointments the current user may see: staff sees all, a dentist or patient only their own.
     /// </summary>
