@@ -19,4 +19,10 @@ public interface IAppointmentService
     /// 404 when it doesn't exist or the current user may not see it.
     /// </summary>
     Task<AppointmentResponse> GetAsync(long id, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Espacios de un día para un odontólogo y un servicio, cruzando su horario, bloqueos y citas no canceladas.
+    /// </summary>
+    Task<IReadOnlyList<AvailabilitySlotResponse>> GetAvailabilityAsync(AvailabilityQuery query,
+        CancellationToken cancellationToken);
 }

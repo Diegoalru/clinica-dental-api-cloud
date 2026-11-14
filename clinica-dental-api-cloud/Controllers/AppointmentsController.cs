@@ -20,6 +20,22 @@ public class AppointmentsController(IAppointmentService appointmentService) : Co
         return await appointmentService.ListAsync(query, cancellationToken);
     }
 
+    /// <summary>
+    /// Espacios de un día (hora de Costa Rica) para un odontólogo y un servicio, cada 15 minutos.
+    /// Un día sin jornada devuelve una lista vacía; los espacios que ya empezaron no se incluyen.
+    /// Solo para los roles que pueden agendar.
+    /// </summary>
+    [HttpGet("availability")]
+    [Authorize(Roles = Roles.CanBook)]
+    [ProducesResponseType<IReadOnlyList<AvailabilitySlotResponse>>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ValidationProblemDetails>(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType<ProblemDetails>(StatusCodes.Status403Forbidden)]
+    public async Task<IReadOnlyList<AvailabilitySlotResponse>> Availability([FromQuery] AvailabilityQuery query,
+        CancellationToken cancellationToken)
+    {
+        return await appointmentService.GetAvailabilityAsync(query, cancellationToken);
+    }
+
     [HttpGet("{id:long}")]
     [ProducesResponseType<AppointmentResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ProblemDetails>(StatusCodes.Status404NotFound)]
