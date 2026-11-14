@@ -195,6 +195,196 @@ public class AppointmentService(ClinicaDbContext db, ICurrentUser currentUser) :
                ?? throw ApiException.NotFound("La cita no existe.");
     }
 
+    public async Task<AppointmentDetailResponse> GetDetailsAsync(long id, CancellationToken cancellationToken)
+    {
+        var appointment = await GetAsync(id, cancellationToken);
+        var patient = await db.Patients.AsNoTracking()
+            .Where(p => p.IdPatient == appointment.PatientId)
+            .Select(p => new AppointmentPatientResponse(
+                p.IdPatient, p.FullName, p.Identification, p.Phone, p.Email ?? p.IdUserNavigation!.Email))
+            .FirstAsync(cancellationToken);
+        var logs = await db.AppointmentLogs.AsNoTracking()
+            .Where(log => log.IdAppointment == id)
+            .OrderBy(log => log.ChangedAt).ThenBy(log => log.IdLog)
+            .Select(log => new AppointmentLogResponse(
+                log.IdLog, log.PreviousStatus, log.NewStatus, log.ChangedByNavigation.FullName,
+                log.ChangedAt, log.Remarks))
+            .ToListAsync(cancellationToken);
+        var notifications = await db.Notifications.AsNoTracking()
+            .Where(notification => notification.IdAppointment == id)
+            .OrderByDescending(notification => notification.CreatedAt)
+            .ThenByDescending(notification => notification.IdNotification)
+            .Select(notification => new AppointmentNotificationResponse(
+                notification.IdNotification, notification.Type, notification.Status,
+                notification.ScheduledFor, notification.SentAt))
+            .ToListAsync(cancellationToken);
+        return new AppointmentDetailResponse(appointment, patient, logs, notifications);
+    }
+
+    public async Task<AppointmentResponse> UpdateStatusAsync(long id, UpdateAppointmentStatusRequest request,
+        CancellationToken cancellationToken)
+    {
+        var target = request.Status?.Trim().ToUpperInvariant() ?? string.Empty;
+        var remarks = request.Remarks?.Trim();
+        if (target == AppointmentStatus.Cancelled && string.IsNullOrWhiteSpace(remarks))
+            throw ApiException.BadRequest("Indique el motivo de la cancelación.");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var appointment = await LoadWritableAppointmentAsync(id, cancellationToken);
+        var now = DateTime.UtcNow;
+        if (!AppointmentTransitionPolicy.Allows(currentUser.Role, appointment.Status, target,
+                appointment.StartsAt, now))
+            throw ApiException.Conflict("El cambio de estado no está permitido para esta cita.");
+
+        var previousStatus = appointment.Status;
+        appointment.Status = target;
+        appointment.AppointmentLogs.Add(new AppointmentLog
+        {
+            ChangedBy = currentUser.UserId,
+            PreviousStatus = previousStatus,
+            NewStatus = target,
+            Remarks = remarks
+        });
+
+        if (target is AppointmentStatus.Cancelled or AppointmentStatus.NoShow
+            or AppointmentStatus.InProgress or AppointmentStatus.Completed)
+        {
+            CancelPendingNotifications(appointment);
+            if (target == AppointmentStatus.Cancelled)
+            {
+                var recipient = await GetPatientEmailAsync(appointment.IdPatient, cancellationToken);
+                if (!string.IsNullOrWhiteSpace(recipient))
+                    appointment.Notifications.Add(new Notification
+                    {
+                        Type = "CANCELLATION",
+                        Channel = "EMAIL",
+                        Recipient = recipient,
+                        Status = "PENDING",
+                        ScheduledFor = now
+                    });
+            }
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return await GetAsync(id, cancellationToken);
+    }
+
+    public async Task<AppointmentResponse> RescheduleAsync(long id, RescheduleAppointmentRequest request,
+        CancellationToken cancellationToken)
+    {
+        var startsAt = ClinicTime.ToUtc(request.StartsAt!.Value);
+        var dentistId = request.DentistId!.Value;
+        var now = DateTime.UtcNow;
+        if (startsAt <= now || !AvailabilityCalculator.IsSlotStart(startsAt))
+            throw ApiException.BadRequest("Elija un espacio futuro de 15 minutos.");
+
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+        var appointment = await LoadWritableAppointmentAsync(id, cancellationToken);
+        if (appointment.Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed)
+            || appointment.StartsAt <= now)
+            throw ApiException.Conflict("Esta cita ya no se puede reprogramar.");
+
+        var duration = await db.DentistServices.AsNoTracking()
+            .Where(ds => ds.IdDentist == dentistId && ds.IdService == appointment.IdService
+                         && ds.IdDentistNavigation.Status == RecordStatus.Active
+                         && ds.IdDentistNavigation.IdUserNavigation.Status == RecordStatus.Active
+                         && ds.IdServiceNavigation.Status == RecordStatus.Active)
+            .Select(ds => (int?)ds.IdServiceNavigation.DurationMinutes)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw ApiException.BadRequest("El odontólogo no ofrece ese servicio.");
+        var endsAt = startsAt.AddMinutes(duration);
+        await EnsureWithinScheduleAsync(dentistId, startsAt, endsAt, cancellationToken);
+
+        if (await db.DentistBlocks.AnyAsync(
+                b => b.IdDentist == dentistId && b.StartsAt < endsAt && startsAt < b.EndsAt,
+                cancellationToken))
+            throw ApiException.Conflict("El odontólogo no está disponible en ese horario.");
+        if (await db.Appointments.AsNoTracking().AnyAsync(
+                a => a.IdAppointment != id && a.IdDentist == dentistId &&
+                     a.Status != AppointmentStatus.Cancelled &&
+                     a.StartsAt < endsAt && startsAt < a.EndsAt, cancellationToken))
+            throw ApiException.Conflict("El espacio ya fue tomado. Elija otro horario.");
+
+        var previousStatus = appointment.Status;
+        appointment.IdDentist = dentistId;
+        appointment.StartsAt = startsAt;
+        appointment.EndsAt = endsAt;
+        appointment.Status = AppointmentStatus.Pending;
+        appointment.AppointmentLogs.Add(new AppointmentLog
+        {
+            ChangedBy = currentUser.UserId,
+            PreviousStatus = previousStatus,
+            NewStatus = AppointmentStatus.Pending,
+            Remarks = string.IsNullOrWhiteSpace(request.Remarks)
+                ? "Cita reprogramada"
+                : $"Cita reprogramada: {request.Remarks.Trim()}"
+        });
+        CancelPendingNotifications(appointment);
+        AddNotifications(appointment, await GetPatientEmailAsync(appointment.IdPatient, cancellationToken), now);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException
+        {
+            SqlState: PostgresErrorCodes.ExclusionViolation
+        })
+        {
+            throw ApiException.Conflict("El espacio ya fue tomado. Elija otro horario.");
+        }
+
+        return await GetAsync(id, cancellationToken);
+    }
+
+    public async Task ResendConfirmationAsync(long id, CancellationToken cancellationToken)
+    {
+        var appointment = await LoadWritableAppointmentAsync(id, cancellationToken);
+        if (appointment.Status is not (AppointmentStatus.Pending or AppointmentStatus.Confirmed)
+            || appointment.StartsAt <= DateTime.UtcNow)
+            throw ApiException.Conflict("Solo se puede reenviar para una cita vigente.");
+        var recipient = await GetPatientEmailAsync(appointment.IdPatient, cancellationToken);
+        if (string.IsNullOrWhiteSpace(recipient))
+            throw ApiException.BadRequest("El paciente no tiene correo para recibir la confirmación.");
+        appointment.Notifications.Add(new Notification
+        {
+            Type = "CONFIRMATION",
+            Channel = "EMAIL",
+            Recipient = recipient,
+            Status = "PENDING",
+            ScheduledFor = DateTime.UtcNow
+        });
+        appointment.AppointmentLogs.Add(new AppointmentLog
+        {
+            ChangedBy = currentUser.UserId,
+            PreviousStatus = appointment.Status,
+            NewStatus = appointment.Status,
+            Remarks = "Confirmación solicitada de nuevo"
+        });
+        await db.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<Appointment> LoadWritableAppointmentAsync(long id, CancellationToken cancellationToken)
+    {
+        if (!await VisibleAppointments().AnyAsync(a => a.IdAppointment == id, cancellationToken))
+            throw ApiException.NotFound("La cita no existe.");
+        return await db.Appointments.Include(a => a.Notifications)
+            .FirstAsync(a => a.IdAppointment == id, cancellationToken);
+    }
+
+    private Task<string?> GetPatientEmailAsync(long patientId, CancellationToken cancellationToken) =>
+        db.Patients.AsNoTracking().Where(p => p.IdPatient == patientId)
+            .Select(p => p.Email ?? p.IdUserNavigation!.Email)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    private static void CancelPendingNotifications(Appointment appointment)
+    {
+        foreach (var notification in appointment.Notifications.Where(n => n.Status == "PENDING"))
+            notification.Status = "CANCELLED";
+    }
+
     public async Task<IReadOnlyList<AvailabilitySlotResponse>> GetAvailabilityAsync(AvailabilityQuery query,
         CancellationToken cancellationToken)
     {

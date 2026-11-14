@@ -13,4 +13,5 @@ public static class Roles
     // For [Authorize(Roles = ...)]
     public const string Staff = Admin + "," + Receptionist;
     public const string CanBook = Admin + "," + Receptionist + "," + Patient;
+    public const string StaffOrDentist = Staff + "," + Dentist;
 }

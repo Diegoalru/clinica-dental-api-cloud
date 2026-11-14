@@ -30,7 +30,9 @@ public class PatientService(ClinicaDbContext db) : IPatientService
         return await query
             .OrderBy(p => p.FullName)
             .Take(MaxResults)
-            .Select(p => new PatientResponse(p.IdPatient, p.FullName, p.Identification, p.Phone, p.Email))
+            .Select(p => new PatientResponse(
+                p.IdPatient, p.FullName, p.Identification, p.Phone,
+                p.Email ?? p.IdUserNavigation!.Email, p.IdUser))
             .ToListAsync(cancellationToken);
     }
 }

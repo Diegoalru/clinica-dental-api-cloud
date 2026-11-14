@@ -20,6 +20,16 @@ public interface IAppointmentService
     /// </summary>
     Task<AppointmentResponse> GetAsync(long id, CancellationToken cancellationToken);
 
+    Task<AppointmentDetailResponse> GetDetailsAsync(long id, CancellationToken cancellationToken);
+
+    Task<AppointmentResponse> UpdateStatusAsync(long id, UpdateAppointmentStatusRequest request,
+        CancellationToken cancellationToken);
+
+    Task<AppointmentResponse> RescheduleAsync(long id, RescheduleAppointmentRequest request,
+        CancellationToken cancellationToken);
+
+    Task ResendConfirmationAsync(long id, CancellationToken cancellationToken);
+
     /// <summary>
     /// Espacios de un día para un odontólogo y un servicio, cruzando su horario, bloqueos y citas no canceladas.
     /// </summary>
